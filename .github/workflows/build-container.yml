@@ -50,10 +50,13 @@ jobs:
         run: |
           sudo skopeo copy "oci-archive:${{ steps.locate.outputs.tar_path }}" \
             "docker-archive:/tmp/dockle-input.tar:localhost/almalinux-custom:ci"
+          # CIS-DI-0001 (non-root USER): this is a base OS image like the
+          # official almalinux image; derived images are expected to set USER.
           sudo podman run --rm \
             -v /tmp/dockle-input.tar:/input.tar:ro \
             goodwithtech/dockle:latest \
             --exit-code 1 --exit-level warn \
+            --ignore CIS-DI-0001 \
             --input /input.tar
 
       - name: Upload container image artifact

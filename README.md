@@ -116,8 +116,20 @@ sudo skopeo copy \
   oci-archive:output/almalinux-10.1-container-x86_64/almalinux-10.1-container-x86_64.tar \
   docker-archive:/tmp/dockle-input.tar:localhost/almalinux-custom:ci
 sudo podman run --rm -v /tmp/dockle-input.tar:/input.tar:ro \
-  goodwithtech/dockle:latest --exit-code 1 --exit-level warn --input /input.tar
+  goodwithtech/dockle:latest --exit-code 1 --exit-level warn \
+  --ignore CIS-DI-0001 --input /input.tar
 ```
+
+#### 除外している checkpoint
+
+| Checkpoint | レベル | 除外理由 |
+|---|---|---|
+| [CIS-DI-0001](https://github.com/goodwithtech/dockle/blob/master/CHECKPOINT.md)(コンテナ用ユーザーの作成) | WARN | 本イメージは公式 `almalinux` イメージと同様のベース OS イメージであり、root が既定。blueprint の `container` タイプには OCI config の `USER` を設定する手段がなく、利用側の派生イメージで `USER` を設定する想定のため除外 |
+
+なお INFO レベルとして CIS-DI-0005(Content Trust)、CIS-DI-0006(HEALTHCHECK)、
+CIS-DI-0008(setuid/setgid ファイル)が報告されますが、INFO は失敗条件(WARN 以上)に
+含まれないため除外設定は不要です。CIS-DI-0008 で列挙される setuid バイナリ(`su`,
+`mount`, `passwd` など)は OS 標準のものです。
 
 ### コンテナレジストリ(GHCR)への push
 
