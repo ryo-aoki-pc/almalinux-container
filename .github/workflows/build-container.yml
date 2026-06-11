@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  packages: write
 
 jobs:
   build:
@@ -51,3 +52,18 @@ jobs:
           name: almalinux-custom-container
           path: ${{ steps.locate.outputs.tar_path }}
           if-no-files-found: error
+
+      - name: Push to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        run: |
+          image="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            tag=latest
+          else
+            tag=$(echo '${{ github.ref_name }}' | tr '/' '-')
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | sudo skopeo login ghcr.io \
+            --username "${{ github.actor }}" --password-stdin
+          sudo skopeo copy "oci-archive:${{ steps.locate.outputs.tar_path }}" \
+            "docker://$image:$tag"
+          echo "Pushed $image:$tag"

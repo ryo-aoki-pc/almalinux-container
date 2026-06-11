@@ -97,19 +97,30 @@ sudo podman run --rm -it localhost/almalinux-custom:latest tmux
 1. image-builder-cli コンテナで `blueprint.toml` から AlmaLinux 10.1 の
    コンテナイメージをビルド
 2. スモークテスト: イメージを取り込み、`/etc/os-release` が AlmaLinux であることを確認
-3. `container.tar` をワークフローアーティファクトとしてアップロード
+3. ビルドした `.tar`(OCI アーカイブ)をワークフローアーティファクトとしてアップロード
+4. GHCR(GitHub Container Registry)へ push(pull request 時は実行しない)
 
-### 発展: レジストリへの公開
+### コンテナレジストリ(GHCR)への push
 
-ビルドしたイメージを GHCR(GitHub Container Registry)へ公開する場合は、ワークフローに
-`permissions: packages: write` を追加し、スモークテスト後に次のようなステップを追加します。
+スモークテスト通過後、イメージは `ghcr.io/ryo-aoki-pc/almalinux-container` へ
+push されます。認証は組み込みの `GITHUB_TOKEN` を使用するため、追加のシークレット
+設定は不要です。タグは次のルールで付与されます。
+
+| トリガー | タグ |
+|---|---|
+| main への push | `latest` |
+| 手動実行(workflow_dispatch) | ブランチ名(`/` は `-` に変換) |
+
+push されたイメージは次のように利用できます。
 
 ```bash
-sudo skopeo copy \
-  --dest-creds "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}" \
-  "oci-archive:<container.tar のパス>" \
-  "docker://ghcr.io/<owner>/almalinux-custom:latest"
+podman pull ghcr.io/ryo-aoki-pc/almalinux-container:latest
+podman run --rm ghcr.io/ryo-aoki-pc/almalinux-container:latest cat /etc/os-release
 ```
+
+> **Note**: 初回 push 時に作成されるパッケージは既定で **private** です。公開する場合は
+> GitHub のパッケージ設定(Package settings → Change visibility)で public に変更して
+> ください。private のまま pull するには `podman login ghcr.io` で認証が必要です。
 
 ## 参照リンク
 
