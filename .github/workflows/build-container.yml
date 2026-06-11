@@ -1,0 +1,69 @@
+name: Build container image from blueprint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Build container image with image-builder
+        run: |
+          mkdir -p output
+          sudo podman run --rm --privileged \
+            -v "$PWD/output:/output" \
+            -v "$PWD/blueprint.toml:/blueprint.toml:ro" \
+            ghcr.io/osbuild/image-builder-cli:latest \
+            build container --distro almalinux-10.1 --blueprint /blueprint.toml
+
+      - name: Locate build output
+        id: locate
+        run: |
+          tar_path=$(find output -name '*.tar' -type f | head -n 1)
+          if [ -z "$tar_path" ]; then
+            echo "no .tar image found in output/" >&2
+            find output -type f >&2 || true
+            exit 1
+          fi
+          echo "tar_path=$tar_path" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke test
+        run: |
+          sudo skopeo copy "oci-archive:${{ steps.locate.outputs.tar_path }}" \
+            containers-storage:localhost/almalinux-custom:latest
+          sudo podman run --rm localhost/almalinux-custom:latest cat /etc/os-release
+          sudo podman run --rm localhost/almalinux-custom:latest grep -q AlmaLinux /etc/os-release
+          sudo podman run --rm localhost/almalinux-custom:latest cat /etc/motd
+
+      - name: Upload container image artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: almalinux-custom-container
+          path: ${{ steps.locate.outputs.tar_path }}
+          if-no-files-found: error
+
+      - name: Push to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        run: |
+          image="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            tag=latest
+          else
+            tag=$(echo '${{ github.ref_name }}' | tr '/' '-')
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | sudo skopeo login ghcr.io \
+            --username "${{ github.actor }}" --password-stdin
+          sudo skopeo copy "oci-archive:${{ steps.locate.outputs.tar_path }}" \
+            "docker://$image:$tag"
+          echo "Pushed $image:$tag"
