@@ -1,0 +1,13 @@
+name = "almalinux-custom-container"
+description = "Custom AlmaLinux 10 container image built with osbuild Image Builder"
+version = "0.0.1"
+
+[[packages]]
+name = "tmux"
+
+[[packages]]
+name = "vim-minimal"
+
+[[customizations.files]]
+path = "/etc/motd"
+data = "AlmaLinux custom container image - built from blueprint.toml with osbuild Image Builder\n"
