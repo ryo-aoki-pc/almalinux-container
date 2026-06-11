@@ -42,7 +42,7 @@ sudo podman run --rm --privileged \
   build container --distro almalinux-10.1 --blueprint /blueprint.toml
 ```
 
-ビルドが完了すると `output/almalinux-10.1-container-x86_64/container.tar`
+ビルドが完了すると `output/almalinux-10.1-container-x86_64/almalinux-10.1-container-x86_64.tar`
 (OCI アーカイブ)が生成されます。
 
 利用可能なディストリビューションとイメージタイプの一覧は次のコマンドで確認できます。
@@ -79,7 +79,7 @@ sudo composer-cli compose image <UUID>
 
 ```bash
 # skopeo でローカルのコンテナストレージへ取り込み(タグ付き)
-sudo skopeo copy oci-archive:output/almalinux-10.1-container-x86_64/container.tar \
+sudo skopeo copy oci-archive:output/almalinux-10.1-container-x86_64/almalinux-10.1-container-x86_64.tar \
   containers-storage:localhost/almalinux-custom:latest
 
 # 実行確認
@@ -87,7 +87,7 @@ sudo podman run --rm localhost/almalinux-custom:latest cat /etc/os-release
 sudo podman run --rm -it localhost/almalinux-custom:latest tmux
 ```
 
-`podman load -i container.tar` でも取り込み可能です(タグは付与されません)。
+`podman load -i <ビルドした .tar>` でも取り込み可能です(タグは付与されません)。
 
 ## CI(GitHub Actions)
 

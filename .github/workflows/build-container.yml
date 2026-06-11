@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Build container image with image-builder
         run: |
@@ -29,9 +29,9 @@ jobs:
       - name: Locate build output
         id: locate
         run: |
-          tar_path=$(find output -name 'container.tar' -type f | head -n 1)
+          tar_path=$(find output -name '*.tar' -type f | head -n 1)
           if [ -z "$tar_path" ]; then
-            echo "container.tar not found in output/" >&2
+            echo "no .tar image found in output/" >&2
             find output -type f >&2 || true
             exit 1
           fi
@@ -46,7 +46,7 @@ jobs:
           sudo podman run --rm localhost/almalinux-custom:latest cat /etc/motd
 
       - name: Upload container image artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: almalinux-custom-container
           path: ${{ steps.locate.outputs.tar_path }}
