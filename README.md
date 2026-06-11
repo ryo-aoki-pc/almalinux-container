@@ -97,8 +97,27 @@ sudo podman run --rm -it localhost/almalinux-custom:latest tmux
 1. image-builder-cli コンテナで `blueprint.toml` から AlmaLinux 10.1 の
    コンテナイメージをビルド
 2. スモークテスト: イメージを取り込み、`/etc/os-release` が AlmaLinux であることを確認
-3. ビルドした `.tar`(OCI アーカイブ)をワークフローアーティファクトとしてアップロード
-4. GHCR(GitHub Container Registry)へ push(pull request 時は実行しない)
+3. lint: dockle でイメージがベストプラクティスに従っているか検査(WARN 以上で失敗)
+4. ビルドした `.tar`(OCI アーカイブ)をワークフローアーティファクトとしてアップロード
+5. GHCR(GitHub Container Registry)へ push(pull request 時は実行しない)
+
+### イメージの lint(dockle)
+
+ビルドしたイメージは [dockle](https://github.com/goodwithtech/dockle) で検査します。
+dockle は CIS Docker Image Benchmark とコンテナイメージのベストプラクティスに基づく
+イメージリンターで、root 実行・機密ファイルの混入・不適切なパーミッションなどを
+チェックします。WARN 以上の指摘があると CI は失敗します(`--exit-code 1 --exit-level warn`)。
+
+dockle が確実に読めるのは docker-archive 形式のため、image-builder が出力する
+OCI アーカイブを skopeo で変換してから検査します。ローカルでは次のように実行できます。
+
+```bash
+sudo skopeo copy \
+  oci-archive:output/almalinux-10.1-container-x86_64/almalinux-10.1-container-x86_64.tar \
+  docker-archive:/tmp/dockle-input.tar:localhost/almalinux-custom:ci
+sudo podman run --rm -v /tmp/dockle-input.tar:/input.tar:ro \
+  goodwithtech/dockle:latest --exit-code 1 --exit-level warn --input /input.tar
+```
 
 ### コンテナレジストリ(GHCR)への push
 

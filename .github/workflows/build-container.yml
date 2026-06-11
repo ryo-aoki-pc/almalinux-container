@@ -46,6 +46,16 @@ jobs:
           sudo podman run --rm localhost/almalinux-custom:latest grep -q AlmaLinux /etc/os-release
           sudo podman run --rm localhost/almalinux-custom:latest cat /etc/motd
 
+      - name: Lint container image with dockle
+        run: |
+          sudo skopeo copy "oci-archive:${{ steps.locate.outputs.tar_path }}" \
+            "docker-archive:/tmp/dockle-input.tar:localhost/almalinux-custom:ci"
+          sudo podman run --rm \
+            -v /tmp/dockle-input.tar:/input.tar:ro \
+            goodwithtech/dockle:latest \
+            --exit-code 1 --exit-level warn \
+            --input /input.tar
+
       - name: Upload container image artifact
         uses: actions/upload-artifact@v6
         with:
