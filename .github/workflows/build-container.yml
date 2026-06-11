@@ -47,7 +47,7 @@ jobs:
           sudo podman run --rm localhost/almalinux-custom:latest cat /etc/motd
 
       - name: Upload container image artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: almalinux-custom-container
           path: ${{ steps.locate.outputs.tar_path }}
