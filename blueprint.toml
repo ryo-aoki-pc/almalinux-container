@@ -11,3 +11,18 @@ name = "vim-minimal"
 [[customizations.files]]
 path = "/etc/motd"
 data = "AlmaLinux custom container image - built from blueprint.toml with osbuild Image Builder\n"
+
+# Default dnf.conf for AlmaLinux 10 plus install_weak_deps=False so that
+# dnf inside the container (and in derived images) never pulls in
+# recommended packages.
+[[customizations.files]]
+path = "/etc/dnf/dnf.conf"
+data = """
+[main]
+gpgcheck=1
+installonly_limit=3
+clean_requirements_on_remove=True
+best=True
+skip_if_unavailable=False
+install_weak_deps=False
+"""

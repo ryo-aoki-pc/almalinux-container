@@ -18,12 +18,36 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      # The static base package set of the "container" image type is
+      # depsolved with the distro default install_weak_deps: true and the
+      # blueprint cannot override it. Fetch the distro definitions matching
+      # the images library linked into the image-builder binary, flip the
+      # default to false, and inject them via the experimental yamldir
+      # override. Blueprint packages are always depsolved without weak deps.
+      - name: Prepare distro definitions with weak deps disabled
+        run: |
+          images_ver=$(sudo podman run --rm ghcr.io/osbuild/image-builder-cli:latest \
+            version --format json | jq -r '."image-builder".dependencies.images')
+          case "$images_ver" in
+            *-*) ref=${images_ver##*-} ;;
+            v*) ref=$images_ver ;;
+            *) ref=main ;;
+          esac
+          echo "images library: $images_ver (checkout ref: $ref)"
+          git clone --filter=blob:none https://github.com/osbuild/images.git /tmp/images-src
+          git -C /tmp/images-src checkout --quiet "$ref"
+          cp -r /tmp/images-src/data/distrodefs /tmp/distrodefs
+          sed -i 's/install_weak_deps: true/install_weak_deps: false/' /tmp/distrodefs/rhel.yaml
+          grep -n 'install_weak_deps' /tmp/distrodefs/rhel.yaml
+
       - name: Build container image with image-builder
         run: |
           mkdir -p output
           sudo podman run --rm --privileged \
             -v "$PWD/output:/output" \
             -v "$PWD/blueprint.toml:/blueprint.toml:ro" \
+            -v /tmp/distrodefs:/distrodefs:ro \
+            -e IMAGE_BUILDER_EXPERIMENTAL=yamldir=/distrodefs \
             ghcr.io/osbuild/image-builder-cli:latest \
             build container --distro almalinux-10.1 --blueprint /blueprint.toml
 
@@ -45,6 +69,10 @@ jobs:
           sudo podman run --rm localhost/almalinux-custom:latest cat /etc/os-release
           sudo podman run --rm localhost/almalinux-custom:latest grep -q AlmaLinux /etc/os-release
           sudo podman run --rm localhost/almalinux-custom:latest cat /etc/motd
+          sudo podman run --rm localhost/almalinux-custom:latest \
+            grep -q '^install_weak_deps=False' /etc/dnf/dnf.conf
+          echo "installed package count:"
+          sudo podman run --rm localhost/almalinux-custom:latest sh -c 'rpm -qa | wc -l'
 
       - name: Lint container image with dockle
         run: |
