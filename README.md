@@ -26,7 +26,8 @@ blueprint は [osbuild Image Builder](https://osbuild.org/) が使用する TOML
 | `blueprint.toml` | 通常(default)イメージの定義(パッケージ・カスタマイズ) |
 | `blueprint-minimal.toml` | minimal イメージの定義(追加パッケージなし) |
 | `blueprint-init.toml` | init イメージの定義(systemd + コンテナ向けユニットマスク) |
-| `.github/workflows/build-container.yml` | GitHub Actions による自動ビルド(default / minimal / init を matrix で並行ビルド) |
+| `blueprint-micro.toml` | micro イメージの定義(パッケージマネージャなし) |
+| `.github/workflows/build-container.yml` | GitHub Actions による自動ビルド(default / minimal / init / micro を matrix で並行ビルド) |
 
 ## ビルド方法
 
@@ -92,6 +93,21 @@ podman run -d --name svc ghcr.io/ryo-aoki-pc/almalinux-container:init
 podman exec svc systemctl status
 podman stop svc   # SIGRTMIN+3 で systemd が正常シャットダウン
 ```
+
+### micro イメージ(almalinux-micro 相当)
+
+パッケージマネージャ(dnf / microdnf / rpm)を一切含まない最小ランタイムイメージで、
+公式の `almalinux/10-micro` に相当します。ビルド済みバイナリを載せるベースイメージ
+としての利用を想定しています。
+
+- osbuild には micro 用のイメージタイプが存在しないため、CI の
+  「Prepare distro definitions」ステップで `container-micro` イメージタイプを
+  distro 定義に追記して定義しています(ベースセット:
+  `bash` / `coreutils-single` / `glibc-minimal-langpack` / `redhat-release`)
+- blueprint(`blueprint-micro.toml`)は追加パッケージなし。パッケージマネージャが
+  ないため `dnf.conf` も配置しません
+- 公式 micro は RPM データベースも削除していますが、本イメージでは脆弱性スキャナが
+  パッケージ情報を読めるよう rpmdb を残しています(rpm コマンド自体は含まれません)
 
 ### 方法B: osbuild-composer + composer-cli(AlmaLinux ホスト上)
 
@@ -166,13 +182,14 @@ sudo podman run --rm --privileged \
 ## CI(GitHub Actions)
 
 `.github/workflows/build-container.yml` が main への push、pull request、手動実行
-(workflow_dispatch)をトリガーに、3つのバリアントを matrix で並行ビルドします。
+(workflow_dispatch)をトリガーに、4つのバリアントを matrix で並行ビルドします。
 
 | バリアント | イメージタイプ | blueprint |
 |---|---|---|
 | default | `container` | `blueprint.toml` |
 | minimal | `container-minimal` | `blueprint-minimal.toml` |
 | init | `container` + OCI 設定書き換え | `blueprint-init.toml` |
+| micro | `container-micro`(CI で定義を追加) | `blueprint-micro.toml` |
 
 各ジョブは以下を行います。
 
@@ -221,10 +238,10 @@ CIS-DI-0008(setuid/setgid ファイル)が報告されますが、INFO は失敗
 push されます。認証は組み込みの `GITHUB_TOKEN` を使用するため、追加のシークレット
 設定は不要です。タグは次のルールで付与されます。
 
-| トリガー | default | minimal | init |
-|---|---|---|---|
-| main への push | `latest` | `minimal` | `init` |
-| 手動実行(workflow_dispatch) | ブランチ名(`/` は `-` に変換) | ブランチ名 + `-minimal` | ブランチ名 + `-init` |
+| トリガー | default | minimal | init | micro |
+|---|---|---|---|---|
+| main への push | `latest` | `minimal` | `init` | `micro` |
+| 手動実行(workflow_dispatch) | ブランチ名(`/` は `-` に変換) | ブランチ名 + `-minimal` | ブランチ名 + `-init` | ブランチ名 + `-micro` |
 
 push されたイメージは次のように利用できます。
 

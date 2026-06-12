@@ -1,0 +1,10 @@
+name = "almalinux-micro-container"
+description = "Micro AlmaLinux 10 container image (no package manager) built with osbuild Image Builder"
+version = "0.0.1"
+
+# No packages and no dnf.conf: the micro image ships without any
+# package manager, like the official almalinux micro image.
+
+[[customizations.files]]
+path = "/etc/motd"
+data = "AlmaLinux micro container image - built from blueprint-micro.toml with osbuild Image Builder\n"

@@ -34,6 +34,11 @@ jobs:
             blueprint: blueprint-init.toml
             main_tag: init
             tag_suffix: "-init"
+          - variant: micro
+            image_type: container-micro
+            blueprint: blueprint-micro.toml
+            main_tag: micro
+            tag_suffix: "-micro"
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -59,6 +64,42 @@ jobs:
           cp -r /tmp/images-src/data/distrodefs /tmp/distrodefs
           sed -i 's/install_weak_deps: true/install_weak_deps: false/' /tmp/distrodefs/rhel.yaml
           grep -n 'install_weak_deps' /tmp/distrodefs/rhel.yaml
+          # Define an extra "container-micro" image type (almalinux-micro
+          # equivalent): same pipeline as the container type but with the
+          # smallest possible package set and no package manager. The
+          # image_types mapping ends the file, so appending keeps the block
+          # inside it, and the &container anchor is defined above.
+          cat >> /tmp/distrodefs/rhel-10/imagetypes.yaml <<'EOF'
+
+            container-micro:
+              <<: *container
+              filename: "container-micro.tar"
+              package_sets:
+                os:
+                  - include:
+                      - "bash"
+                      - "coreutils-single"
+                      - "glibc-minimal-langpack"
+                      - "redhat-release"
+                    exclude:
+                      - "coreutils"
+                      - "coreutils-common"
+                      - "cyrus-sasl-lib"
+                      - "libbrotli"
+                      - "libcurl"
+                      - "libevent"
+                      - "libpsl"
+                      - "libsemanage"
+                      - "libssh"
+                      - "libssh-config"
+                      - "libxcrypt"
+                      - "openldap"
+                      - "publicsuffix-list-dafsa"
+                      - "rpm-plugin-audit"
+                      - "shadow-utils"
+                      - "tzdata"
+          EOF
+          python3 -c "import yaml; yaml.safe_load(open('/tmp/distrodefs/rhel-10/imagetypes.yaml')); print('patched imagetypes.yaml OK')"
 
       - name: Build container image with image-builder
         run: |
@@ -106,10 +147,13 @@ jobs:
           sudo podman run --rm localhost/almalinux-custom:latest cat /etc/os-release \
             | grep -q AlmaLinux
           sudo podman run --rm localhost/almalinux-custom:latest cat /etc/motd
-          sudo podman run --rm localhost/almalinux-custom:latest cat /etc/dnf/dnf.conf \
-            | grep -q '^install_weak_deps=False'
-          echo "installed package count:"
-          sudo podman run --rm localhost/almalinux-custom:latest rpm -qa | wc -l
+          # The micro image has no package manager (no dnf.conf, no rpm).
+          if [ "${{ matrix.variant }}" != "micro" ]; then
+            sudo podman run --rm localhost/almalinux-custom:latest cat /etc/dnf/dnf.conf \
+              | grep -q '^install_weak_deps=False'
+            echo "installed package count:"
+            sudo podman run --rm localhost/almalinux-custom:latest rpm -qa | wc -l
+          fi
 
       - name: Boot test (init variant)
         if: matrix.variant == 'init'
