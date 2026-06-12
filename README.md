@@ -40,10 +40,10 @@ sudo podman run --rm --privileged \
   -v "$PWD/output:/output" \
   -v "$PWD/blueprint.toml:/blueprint.toml:ro" \
   ghcr.io/osbuild/image-builder-cli:latest \
-  build container --distro almalinux-10.1 --blueprint /blueprint.toml
+  build container --distro almalinux-10.2 --blueprint /blueprint.toml
 ```
 
-ビルドが完了すると `output/almalinux-10.1-container-x86_64/almalinux-10.1-container-x86_64.tar`
+ビルドが完了すると `output/almalinux-10.2-container-x86_64/almalinux-10.2-container-x86_64.tar`
 (OCI アーカイブ)が生成されます。
 
 利用可能なディストリビューションとイメージタイプの一覧は次のコマンドで確認できます。
@@ -64,10 +64,10 @@ sudo podman run --rm --privileged \
   -v "$PWD/output:/output" \
   -v "$PWD/blueprint-minimal.toml:/blueprint.toml:ro" \
   ghcr.io/osbuild/image-builder-cli:latest \
-  build container-minimal --distro almalinux-10.1 --blueprint /blueprint.toml
+  build container-minimal --distro almalinux-10.2 --blueprint /blueprint.toml
 ```
 
-出力は `output/almalinux-10.1-container-minimal-x86_64/almalinux-10.1-container-minimal-x86_64.tar`
+出力は `output/almalinux-10.2-container-minimal-x86_64/almalinux-10.2-container-minimal-x86_64.tar`
 です。コンテナ内でのパッケージ追加は `microdnf install <pkg>` で行います。
 
 ### 方法B: osbuild-composer + composer-cli(AlmaLinux ホスト上)
@@ -98,7 +98,7 @@ sudo composer-cli compose image <UUID>
 
 ```bash
 # skopeo でローカルのコンテナストレージへ取り込み(タグ付き)
-sudo skopeo copy oci-archive:output/almalinux-10.1-container-x86_64/almalinux-10.1-container-x86_64.tar \
+sudo skopeo copy oci-archive:output/almalinux-10.2-container-x86_64/almalinux-10.2-container-x86_64.tar \
   containers-storage:localhost/almalinux-custom:latest
 
 # 実行確認
@@ -133,7 +133,7 @@ sudo podman run --rm --privileged \
   -v /tmp/distrodefs:/distrodefs:ro \
   -e IMAGE_BUILDER_EXPERIMENTAL=yamldir=/distrodefs \
   ghcr.io/osbuild/image-builder-cli:latest \
-  build container --distro almalinux-10.1 --blueprint /blueprint.toml
+  build container --distro almalinux-10.2 --blueprint /blueprint.toml
 ```
 
 > **Note**: `yamldir` は images ライブラリの実験的機能です。将来の image-builder で
@@ -153,7 +153,7 @@ sudo podman run --rm --privileged \
 各ジョブは以下を行います。
 
 1. distro 定義を取得し、推奨パッケージ(weak deps)を無効化するパッチを適用
-2. image-builder-cli コンテナで対応する blueprint から AlmaLinux 10.1 の
+2. image-builder-cli コンテナで対応する blueprint から AlmaLinux 10.2 の
    コンテナイメージをビルド
 3. スモークテスト: `/etc/os-release` が AlmaLinux であること、`dnf.conf` の
    `install_weak_deps=False` を確認し、インストール済みパッケージ数を表示
@@ -173,7 +173,7 @@ OCI アーカイブを skopeo で変換してから検査します。ローカ�
 
 ```bash
 sudo skopeo copy \
-  oci-archive:output/almalinux-10.1-container-x86_64/almalinux-10.1-container-x86_64.tar \
+  oci-archive:output/almalinux-10.2-container-x86_64/almalinux-10.2-container-x86_64.tar \
   docker-archive:/tmp/dockle-input.tar:localhost/almalinux-custom:ci
 sudo podman run --rm -v /tmp/dockle-input.tar:/input.tar:ro \
   goodwithtech/dockle:latest --exit-code 1 --exit-level warn \
@@ -221,6 +221,6 @@ podman run --rm ghcr.io/ryo-aoki-pc/almalinux-container:minimal microdnf --versi
 
 - [Image Builder ドキュメント](https://osbuild.org/docs/)
 - [Blueprint Reference](https://osbuild.org/docs/user-guide/blueprint-reference/)
-- [AlmaLinux 10.1 container イメージタイプ](https://osbuild.org/docs/user-guide/image-descriptions/almalinux-10.1/container/)
+- [Image Builder がサポートするイメージタイプ一覧](https://osbuild.org/docs/user-guide/image-descriptions/)
 - [image-builder-cli](https://github.com/osbuild/image-builder-cli)
 - [コマンドラインでのビルド(osbuild-composer)](https://osbuild.org/docs/on-premises/commandline/)

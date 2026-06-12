@@ -64,7 +64,7 @@ jobs:
             -v /tmp/distrodefs:/distrodefs:ro \
             -e IMAGE_BUILDER_EXPERIMENTAL=yamldir=/distrodefs \
             ghcr.io/osbuild/image-builder-cli:latest \
-            build ${{ matrix.image_type }} --distro almalinux-10.1 --blueprint /blueprint.toml
+            build ${{ matrix.image_type }} --distro almalinux-10.2 --blueprint /blueprint.toml
 
       - name: Locate build output
         id: locate
