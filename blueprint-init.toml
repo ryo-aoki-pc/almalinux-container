@@ -1,0 +1,44 @@
+name = "almalinux-init-container"
+description = "AlmaLinux 10 init (systemd) container image built with osbuild Image Builder"
+version = "0.0.1"
+
+[[packages]]
+name = "systemd"
+
+[[packages]]
+name = "procps-ng"
+
+# Mask units that cannot or should not run inside a container,
+# matching the official almalinux init image.
+[customizations.services]
+masked = [
+    "systemd-remount-fs.service",
+    "dev-hugepages.mount",
+    "sys-fs-fuse-connections.mount",
+    "systemd-logind.service",
+    "getty.target",
+    "console-getty.service",
+    "systemd-udev-trigger.service",
+    "systemd-udevd.service",
+    "systemd-random-seed.service",
+    "systemd-machine-id-commit.service",
+]
+
+[[customizations.files]]
+path = "/etc/motd"
+data = "AlmaLinux init container image - built from blueprint-init.toml with osbuild Image Builder\n"
+
+# Default dnf.conf for AlmaLinux 10 plus install_weak_deps=False so that
+# dnf inside the container (and in derived images) never pulls in
+# recommended packages.
+[[customizations.files]]
+path = "/etc/dnf/dnf.conf"
+data = """
+[main]
+gpgcheck=1
+installonly_limit=3
+clean_requirements_on_remove=True
+best=True
+skip_if_unavailable=False
+install_weak_deps=False
+"""

@@ -29,6 +29,11 @@ jobs:
             blueprint: blueprint-minimal.toml
             main_tag: minimal
             tag_suffix: "-minimal"
+          - variant: init
+            image_type: container
+            blueprint: blueprint-init.toml
+            main_tag: init
+            tag_suffix: "-init"
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -77,6 +82,20 @@ jobs:
           fi
           echo "tar_path=$tar_path" >> "$GITHUB_OUTPUT"
 
+      # The container image type always emits Cmd=["sh"]; the init variant
+      # needs systemd as PID 1 and the matching stop signal, which a
+      # blueprint cannot express. Rewrite the OCI config in place so all
+      # following steps consume the adjusted archive.
+      - name: Configure init image OCI metadata
+        if: matrix.variant == 'init'
+        run: |
+          tar="${{ steps.locate.outputs.tar_path }}"
+          ctr=$(sudo buildah from "oci-archive:$tar")
+          sudo buildah config --cmd /sbin/init --stop-signal SIGRTMIN+3 "$ctr"
+          sudo buildah commit --format oci --rm "$ctr" localhost/almalinux-init-build
+          sudo rm -f "$tar"
+          sudo skopeo copy containers-storage:localhost/almalinux-init-build "oci-archive:$tar"
+
       # Checks are piped to tools on the runner because the minimal image
       # does not contain grep.
       - name: Smoke test
@@ -91,6 +110,25 @@ jobs:
             | grep -q '^install_weak_deps=False'
           echo "installed package count:"
           sudo podman run --rm localhost/almalinux-custom:latest rpm -qa | wc -l
+
+      - name: Boot test (init variant)
+        if: matrix.variant == 'init'
+        run: |
+          sudo podman inspect \
+            --format 'Cmd={{.Config.Cmd}} StopSignal={{.Config.StopSignal}}' \
+            localhost/almalinux-custom:latest | tee /tmp/inspect.txt
+          grep -q '/sbin/init' /tmp/inspect.txt
+          sudo podman run -d --name init-test localhost/almalinux-custom:latest
+          state=""
+          for _ in $(seq 1 30); do
+            state=$(sudo podman exec init-test systemctl is-system-running 2>/dev/null || true)
+            case "$state" in running|degraded) break ;; esac
+            sleep 1
+          done
+          echo "systemd state: $state"
+          sudo podman exec init-test systemctl list-units --failed --no-legend || true
+          sudo podman rm -f init-test
+          case "$state" in running|degraded) exit 0 ;; *) exit 1 ;; esac
 
       - name: Lint container image with dockle
         run: |

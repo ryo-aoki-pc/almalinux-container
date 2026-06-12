@@ -25,7 +25,8 @@ blueprint は [osbuild Image Builder](https://osbuild.org/) が使用する TOML
 |---|---|
 | `blueprint.toml` | 通常(default)イメージの定義(パッケージ・カスタマイズ) |
 | `blueprint-minimal.toml` | minimal イメージの定義(追加パッケージなし) |
-| `.github/workflows/build-container.yml` | GitHub Actions による自動ビルド(default / minimal を matrix で並行ビルド) |
+| `blueprint-init.toml` | init イメージの定義(systemd + コンテナ向けユニットマスク) |
+| `.github/workflows/build-container.yml` | GitHub Actions による自動ビルド(default / minimal / init を matrix で並行ビルド) |
 
 ## ビルド方法
 
@@ -69,6 +70,28 @@ sudo podman run --rm --privileged \
 
 出力は `output/almalinux-10.2-container-minimal-x86_64/almalinux-10.2-container-minimal-x86_64.tar`
 です。コンテナ内でのパッケージ追加は `microdnf install <pkg>` で行います。
+
+### init イメージ(almalinux-init 相当)
+
+systemd を PID 1 として起動し、コンテナ内で systemd サービスを動かすための
+イメージです。公式の `almalinux/10-init` に相当します。
+
+- `blueprint-init.toml` で `systemd` / `procps-ng` を追加し、コンテナ内で動作しない
+  ユニット(`systemd-udevd.service`、`getty.target` など10個)を公式イメージと同じ
+  構成で `[customizations.services]` の `masked` によりマスクしています
+- blueprint では OCI config(`CMD` / `STOPSIGNAL`)を設定できないため、CI では
+  ビルド後に buildah で `CMD /sbin/init` と `STOPSIGNAL SIGRTMIN+3` を書き込んでいます
+  (`.github/workflows/build-container.yml` の「Configure init image OCI metadata」
+  ステップを参照)
+- CI は実際にコンテナを起動し、`systemctl is-system-running` で systemd が
+  起動することを検証します
+
+```bash
+# systemd サービスを動かすコンテナとして起動
+podman run -d --name svc ghcr.io/ryo-aoki-pc/almalinux-container:init
+podman exec svc systemctl status
+podman stop svc   # SIGRTMIN+3 で systemd が正常シャットダウン
+```
 
 ### 方法B: osbuild-composer + composer-cli(AlmaLinux ホスト上)
 
@@ -143,12 +166,13 @@ sudo podman run --rm --privileged \
 ## CI(GitHub Actions)
 
 `.github/workflows/build-container.yml` が main への push、pull request、手動実行
-(workflow_dispatch)をトリガーに、2つのバリアントを matrix で並行ビルドします。
+(workflow_dispatch)をトリガーに、3つのバリアントを matrix で並行ビルドします。
 
 | バリアント | イメージタイプ | blueprint |
 |---|---|---|
 | default | `container` | `blueprint.toml` |
 | minimal | `container-minimal` | `blueprint-minimal.toml` |
+| init | `container` + OCI 設定書き換え | `blueprint-init.toml` |
 
 各ジョブは以下を行います。
 
@@ -197,10 +221,10 @@ CIS-DI-0008(setuid/setgid ファイル)が報告されますが、INFO は失敗
 push されます。認証は組み込みの `GITHUB_TOKEN` を使用するため、追加のシークレット
 設定は不要です。タグは次のルールで付与されます。
 
-| トリガー | default | minimal |
-|---|---|---|
-| main への push | `latest` | `minimal` |
-| 手動実行(workflow_dispatch) | ブランチ名(`/` は `-` に変換) | ブランチ名 + `-minimal` |
+| トリガー | default | minimal | init |
+|---|---|---|---|
+| main への push | `latest` | `minimal` | `init` |
+| 手動実行(workflow_dispatch) | ブランチ名(`/` は `-` に変換) | ブランチ名 + `-minimal` | ブランチ名 + `-init` |
 
 push されたイメージは次のように利用できます。
 
