@@ -12,20 +12,59 @@ permissions:
 
 jobs:
   build:
+    name: build (${{ matrix.variant }})
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: default
+            image_type: container
+            blueprint: blueprint.toml
+            main_tag: latest
+            tag_suffix: ""
+          - variant: minimal
+            image_type: container-minimal
+            blueprint: blueprint-minimal.toml
+            main_tag: minimal
+            tag_suffix: "-minimal"
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+
+      # The static base package set of the image type is depsolved with the
+      # distro default install_weak_deps: true and the blueprint cannot
+      # override it. Fetch the distro definitions matching the images
+      # library linked into the image-builder binary, flip the default to
+      # false, and inject them via the experimental yamldir override.
+      # Blueprint packages are always depsolved without weak deps.
+      - name: Prepare distro definitions with weak deps disabled
+        run: |
+          images_ver=$(sudo podman run --rm ghcr.io/osbuild/image-builder-cli:latest \
+            version --format json | jq -r '."image-builder".dependencies.images')
+          case "$images_ver" in
+            *-*) ref=${images_ver##*-} ;;
+            v*) ref=$images_ver ;;
+            *) ref=main ;;
+          esac
+          echo "images library: $images_ver (checkout ref: $ref)"
+          git clone --filter=blob:none https://github.com/osbuild/images.git /tmp/images-src
+          git -C /tmp/images-src checkout --quiet "$ref"
+          cp -r /tmp/images-src/data/distrodefs /tmp/distrodefs
+          sed -i 's/install_weak_deps: true/install_weak_deps: false/' /tmp/distrodefs/rhel.yaml
+          grep -n 'install_weak_deps' /tmp/distrodefs/rhel.yaml
 
       - name: Build container image with image-builder
         run: |
           mkdir -p output
           sudo podman run --rm --privileged \
             -v "$PWD/output:/output" \
-            -v "$PWD/blueprint.toml:/blueprint.toml:ro" \
+            -v "$PWD/${{ matrix.blueprint }}:/blueprint.toml:ro" \
+            -v /tmp/distrodefs:/distrodefs:ro \
+            -e IMAGE_BUILDER_EXPERIMENTAL=yamldir=/distrodefs \
             ghcr.io/osbuild/image-builder-cli:latest \
-            build container --distro almalinux-10.1 --blueprint /blueprint.toml
+            build ${{ matrix.image_type }} --distro almalinux-10.2 --blueprint /blueprint.toml
 
       - name: Locate build output
         id: locate
@@ -38,18 +77,38 @@ jobs:
           fi
           echo "tar_path=$tar_path" >> "$GITHUB_OUTPUT"
 
+      # Checks are piped to tools on the runner because the minimal image
+      # does not contain grep.
       - name: Smoke test
         run: |
           sudo skopeo copy "oci-archive:${{ steps.locate.outputs.tar_path }}" \
             containers-storage:localhost/almalinux-custom:latest
           sudo podman run --rm localhost/almalinux-custom:latest cat /etc/os-release
-          sudo podman run --rm localhost/almalinux-custom:latest grep -q AlmaLinux /etc/os-release
+          sudo podman run --rm localhost/almalinux-custom:latest cat /etc/os-release \
+            | grep -q AlmaLinux
           sudo podman run --rm localhost/almalinux-custom:latest cat /etc/motd
+          sudo podman run --rm localhost/almalinux-custom:latest cat /etc/dnf/dnf.conf \
+            | grep -q '^install_weak_deps=False'
+          echo "installed package count:"
+          sudo podman run --rm localhost/almalinux-custom:latest rpm -qa | wc -l
+
+      - name: Lint container image with dockle
+        run: |
+          sudo skopeo copy "oci-archive:${{ steps.locate.outputs.tar_path }}" \
+            "docker-archive:/tmp/dockle-input.tar:localhost/almalinux-custom:ci"
+          # CIS-DI-0001 (non-root USER): this is a base OS image like the
+          # official almalinux image; derived images are expected to set USER.
+          sudo podman run --rm \
+            -v /tmp/dockle-input.tar:/input.tar:ro \
+            goodwithtech/dockle:latest \
+            --exit-code 1 --exit-level warn \
+            --ignore CIS-DI-0001 \
+            --input /input.tar
 
       - name: Upload container image artifact
         uses: actions/upload-artifact@v6
         with:
-          name: almalinux-custom-container
+          name: almalinux-custom-container${{ matrix.tag_suffix }}
           path: ${{ steps.locate.outputs.tar_path }}
           if-no-files-found: error
 
@@ -58,9 +117,9 @@ jobs:
         run: |
           image="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
           if [ "${{ github.ref }}" = "refs/heads/main" ]; then
-            tag=latest
+            tag="${{ matrix.main_tag }}"
           else
-            tag=$(echo '${{ github.ref_name }}' | tr '/' '-')
+            tag="$(echo '${{ github.ref_name }}' | tr '/' '-')${{ matrix.tag_suffix }}"
           fi
           echo "${{ secrets.GITHUB_TOKEN }}" | sudo skopeo login ghcr.io \
             --username "${{ github.actor }}" --password-stdin
