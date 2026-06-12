@@ -23,8 +23,9 @@ blueprint は [osbuild Image Builder](https://osbuild.org/) が使用する TOML
 
 | ファイル | 説明 |
 |---|---|
-| `blueprint.toml` | コンテナイメージの定義(パッケージ・カスタマイズ) |
-| `.github/workflows/build-container.yml` | GitHub Actions による自動ビルド |
+| `blueprint.toml` | 通常(default)イメージの定義(パッケージ・カスタマイズ) |
+| `blueprint-minimal.toml` | minimal イメージの定義(追加パッケージなし) |
+| `.github/workflows/build-container.yml` | GitHub Actions による自動ビルド(default / minimal を matrix で並行ビルド) |
 
 ## ビルド方法
 
@@ -50,6 +51,24 @@ sudo podman run --rm --privileged \
 ```bash
 sudo podman run --rm ghcr.io/osbuild/image-builder-cli:latest list
 ```
+
+### minimal イメージ(almalinux-minimal 相当)
+
+`container-minimal` イメージタイプを使うと、公式の `almalinux/10-minimal` に相当する
+microdnf ベースの最小イメージをビルドできます。ベースパッケージセットは
+`bash` / `coreutils-single` / `redhat-release` / `rpm` / `microdnf` のみで、
+dnf 本体や Python を含みません(`grep` などの一般コマンドも入りません)。
+
+```bash
+sudo podman run --rm --privileged \
+  -v "$PWD/output:/output" \
+  -v "$PWD/blueprint-minimal.toml:/blueprint.toml:ro" \
+  ghcr.io/osbuild/image-builder-cli:latest \
+  build container-minimal --distro almalinux-10.1 --blueprint /blueprint.toml
+```
+
+出力は `output/almalinux-10.1-container-minimal-x86_64/almalinux-10.1-container-minimal-x86_64.tar`
+です。コンテナ内でのパッケージ追加は `microdnf install <pkg>` で行います。
 
 ### 方法B: osbuild-composer + composer-cli(AlmaLinux ホスト上)
 
@@ -124,10 +143,17 @@ sudo podman run --rm --privileged \
 ## CI(GitHub Actions)
 
 `.github/workflows/build-container.yml` が main への push、pull request、手動実行
-(workflow_dispatch)をトリガーに以下を行います。
+(workflow_dispatch)をトリガーに、2つのバリアントを matrix で並行ビルドします。
+
+| バリアント | イメージタイプ | blueprint |
+|---|---|---|
+| default | `container` | `blueprint.toml` |
+| minimal | `container-minimal` | `blueprint-minimal.toml` |
+
+各ジョブは以下を行います。
 
 1. distro 定義を取得し、推奨パッケージ(weak deps)を無効化するパッチを適用
-2. image-builder-cli コンテナで `blueprint.toml` から AlmaLinux 10.1 の
+2. image-builder-cli コンテナで対応する blueprint から AlmaLinux 10.1 の
    コンテナイメージをビルド
 3. スモークテスト: `/etc/os-release` が AlmaLinux であること、`dnf.conf` の
    `install_weak_deps=False` を確認し、インストール済みパッケージ数を表示
@@ -171,16 +197,20 @@ CIS-DI-0008(setuid/setgid ファイル)が報告されますが、INFO は失敗
 push されます。認証は組み込みの `GITHUB_TOKEN` を使用するため、追加のシークレット
 設定は不要です。タグは次のルールで付与されます。
 
-| トリガー | タグ |
-|---|---|
-| main への push | `latest` |
-| 手動実行(workflow_dispatch) | ブランチ名(`/` は `-` に変換) |
+| トリガー | default | minimal |
+|---|---|---|
+| main への push | `latest` | `minimal` |
+| 手動実行(workflow_dispatch) | ブランチ名(`/` は `-` に変換) | ブランチ名 + `-minimal` |
 
 push されたイメージは次のように利用できます。
 
 ```bash
 podman pull ghcr.io/ryo-aoki-pc/almalinux-container:latest
 podman run --rm ghcr.io/ryo-aoki-pc/almalinux-container:latest cat /etc/os-release
+
+# minimal バリアント
+podman pull ghcr.io/ryo-aoki-pc/almalinux-container:minimal
+podman run --rm ghcr.io/ryo-aoki-pc/almalinux-container:minimal microdnf --version
 ```
 
 > **Note**: 初回 push 時に作成されるパッケージは既定で **private** です。公開する場合は

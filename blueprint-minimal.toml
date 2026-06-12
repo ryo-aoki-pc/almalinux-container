@@ -1,0 +1,24 @@
+name = "almalinux-minimal-container"
+description = "Minimal AlmaLinux 10 container image (microdnf based) built with osbuild Image Builder"
+version = "0.0.1"
+
+# No extra packages: keep the image as small as possible.
+
+[[customizations.files]]
+path = "/etc/motd"
+data = "AlmaLinux minimal container image - built from blueprint-minimal.toml with osbuild Image Builder\n"
+
+# Default dnf.conf for AlmaLinux 10 plus install_weak_deps=False so that
+# microdnf/dnf inside the container (and in derived images) never pulls
+# in recommended packages.
+[[customizations.files]]
+path = "/etc/dnf/dnf.conf"
+data = """
+[main]
+gpgcheck=1
+installonly_limit=3
+clean_requirements_on_remove=True
+best=True
+skip_if_unavailable=False
+install_weak_deps=False
+"""
