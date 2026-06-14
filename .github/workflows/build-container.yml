@@ -123,19 +123,48 @@ jobs:
           fi
           echo "tar_path=$tar_path" >> "$GITHUB_OUTPUT"
 
-      # The container image type always emits Cmd=["sh"]; the init variant
-      # needs systemd as PID 1 and the matching stop signal, which a
-      # blueprint cannot express. Rewrite the OCI config in place so all
-      # following steps consume the adjusted archive.
-      - name: Configure init image OCI metadata
-        if: matrix.variant == 'init'
+      # image-builder leaves build-time artefacts (package-manager caches,
+      # logs, temp files) in the rootfs and does not provision the empty
+      # runtime files a container expects. Normalise the rootfs with buildah:
+      # create the required files/directories, delete the unnecessary ones,
+      # and commit a squashed single layer so the deletions actually shrink
+      # the image (a plain commit would only add whiteouts). The init variant
+      # also needs systemd as PID 1, which a blueprint cannot express, so its
+      # OCI config is set in the same commit.
+      - name: Normalize image (create required files, remove unneeded ones)
         run: |
           tar="${{ steps.locate.outputs.tar_path }}"
           ctr=$(sudo buildah from "oci-archive:$tar")
-          sudo buildah config --cmd /sbin/init --stop-signal SIGRTMIN+3 "$ctr"
-          sudo buildah commit --format oci --rm "$ctr" localhost/almalinux-init-build
+          mnt=$(sudo buildah mount "$ctr")
+          echo "rootfs size before normalize:"; sudo du -sh "$mnt"
+
+          # --- Files and directories a container image needs at runtime ---
+          # Empty machine-id triggers first-boot provisioning; resolv.conf and
+          # hostname are bind-mounted/populated by the container runtime.
+          sudo install -m 0644 /dev/null "$mnt/etc/machine-id"
+          sudo install -m 0644 /dev/null "$mnt/etc/resolv.conf"
+          sudo install -m 0644 /dev/null "$mnt/etc/hostname"
+          # Writable temp and runtime directories with the conventional modes.
+          sudo install -d -m 1777 "$mnt/tmp" "$mnt/var/tmp"
+          sudo install -d -m 0755 "$mnt/run"
+
+          # --- Build-time artefacts with no purpose in a container image ---
+          # The rpm database and dnf history are kept so the package manager
+          # and vulnerability scanners keep working.
+          for d in var/cache/dnf var/cache/yum var/cache/ldconfig; do
+            sudo rm -rf "${mnt:?}/$d/"* 2>/dev/null || true
+          done
+          [ -d "$mnt/var/log" ] && sudo find "$mnt/var/log" -type f -delete 2>/dev/null || true
+          sudo rm -rf "${mnt:?}/tmp/"* "${mnt:?}/var/tmp/"* "${mnt:?}/boot/"* 2>/dev/null || true
+
+          echo "rootfs size after normalize:"; sudo du -sh "$mnt"
+          sudo buildah unmount "$ctr"
+          if [ "${{ matrix.variant }}" = "init" ]; then
+            sudo buildah config --cmd /sbin/init --stop-signal SIGRTMIN+3 "$ctr"
+          fi
           sudo rm -f "$tar"
-          sudo skopeo copy containers-storage:localhost/almalinux-init-build "oci-archive:$tar"
+          sudo buildah commit --squash --format oci --rm "$ctr" localhost/almalinux-normalized
+          sudo skopeo copy containers-storage:localhost/almalinux-normalized "oci-archive:$tar"
 
       # Checks are piped to tools on the runner because the minimal image
       # does not contain grep.
@@ -147,6 +176,12 @@ jobs:
           sudo podman run --rm localhost/almalinux-custom:latest cat /etc/os-release \
             | grep -q AlmaLinux
           sudo podman run --rm localhost/almalinux-custom:latest cat /etc/motd
+          # Required runtime files were created (machine-id present and empty).
+          sudo podman run --rm localhost/almalinux-custom:latest sh -c \
+            'test -f /etc/machine-id && test ! -s /etc/machine-id && test -f /etc/resolv.conf && test -d /tmp'
+          # Unnecessary build artefacts were removed.
+          sudo podman run --rm localhost/almalinux-custom:latest sh -c \
+            '! ls -A /var/cache/dnf 2>/dev/null | grep -q . && ! ls -A /boot 2>/dev/null | grep -q .'
           # The micro image has no package manager (no dnf.conf, no rpm).
           if [ "${{ matrix.variant }}" != "micro" ]; then
             sudo podman run --rm localhost/almalinux-custom:latest cat /etc/dnf/dnf.conf \
