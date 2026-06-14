@@ -196,11 +196,45 @@ sudo podman run --rm --privileged \
 1. distro 定義を取得し、推奨パッケージ(weak deps)を無効化するパッチを適用
 2. image-builder-cli コンテナで対応する blueprint から AlmaLinux 10.2 の
    コンテナイメージをビルド
-3. スモークテスト: `/etc/os-release` が AlmaLinux であること、`dnf.conf` の
-   `install_weak_deps=False` を確認し、インストール済みパッケージ数を表示
-4. lint: dockle でイメージがベストプラクティスに従っているか検査(WARN 以上で失敗)
-5. ビルドした `.tar`(OCI アーカイブ)をワークフローアーティファクトとしてアップロード
-6. GHCR(GitHub Container Registry)へ push(pull request 時は実行しない)
+3. 正規化: コンテナに必要なファイル/ディレクトリを作成し、不要なものを削除して
+   単一レイヤーに squash(init は systemd 用の OCI 設定もここで付与)
+4. スモークテスト: `/etc/os-release` が AlmaLinux であること、`dnf.conf` の
+   `install_weak_deps=False`、作成したファイルの存在・不要ファイルの削除を確認し、
+   インストール済みパッケージ数を表示
+5. lint: dockle でイメージがベストプラクティスに従っているか検査(WARN 以上で失敗)
+6. ビルドした `.tar`(OCI アーカイブ)をワークフローアーティファクトとしてアップロード
+7. GHCR(GitHub Container Registry)へ push(pull request 時は実行しない)
+
+### イメージの正規化(ファイルの作成・削除)
+
+ビルド直後のイメージにはパッケージマネージャのキャッシュやビルド時のログなど
+コンテナに不要なものが残り、逆にコンテナ実行時に必要な空ファイルが用意されて
+いないことがあります。ワークフローの「Normalize image」ステップで buildah により
+rootfs を調整し、`buildah commit --squash` で単一レイヤーに固めて削除を実サイズに
+反映します(公式 AlmaLinux コンテナイメージと同様の処理)。
+
+**作成するファイル/ディレクトリ:**
+
+| パス | 目的 |
+|---|---|
+| `/etc/machine-id`(空) | 初回起動時に systemd が一意の ID を生成できるようにする |
+| `/etc/resolv.conf`(空) | コンテナランタイムが起動時に内容を流し込む |
+| `/etc/hostname`(空) | 同上 |
+| `/tmp`, `/var/tmp`(1777) | 書き込み可能な一時ディレクトリ |
+| `/run`(0755) | 実行時の状態ディレクトリ |
+
+**削除するファイル/ディレクトリ:**
+
+| パス | 理由 |
+|---|---|
+| `/var/cache/dnf`, `/var/cache/yum`, `/var/cache/ldconfig` | 再生成可能なキャッシュ |
+| `/var/log/` 配下のファイル | ビルド時のログ |
+| `/tmp`, `/var/tmp` の中身 | ビルドで残った一時ファイル |
+| `/boot` の中身 | コンテナではカーネル/ブート関連は不要 |
+
+RPM データベース(`/var/lib/rpm`)と dnf 履歴(`/var/lib/dnf`)は、パッケージ
+マネージャと脆弱性スキャナが動作し続けられるよう残しています(micro はもともと
+これらを含みません)。
 
 ### イメージの lint(dockle)
 
